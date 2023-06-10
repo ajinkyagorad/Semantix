@@ -1,5 +1,7 @@
 # Semantix: An Open Source YOLO-based Image Labeling Tool
 
+This project is in beginning phase.
+
 Welcome to **Semantix**, a GUI-based open-source tool designed to simplify the process of labeling and training data for object detection using the YOLO (You Only Look Once) algorithm. Semantix streamlines the workflow of preparing a dataset, training the model, and generating predictions.
 
 ## Key Features (in progress)
