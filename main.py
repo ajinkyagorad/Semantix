@@ -11,7 +11,7 @@ from tqdm import tqdm
 import yaml
 
 
-def txt_to_json(txt_file, img_file, output_dir):
+def txt_to_json(txt_file, img_file, output_dir, class_names):
     
     # Open the txt file
     with open(txt_file, 'r') as f:
@@ -70,7 +70,7 @@ def txt_to_json(txt_file, img_file, output_dir):
         json.dump(img_dict, f, ensure_ascii=False, indent=2)
 
 
-def convert_all_txt_to_json(txt_dir, img_dir, output_dir):
+def convert_all_txt_to_json(txt_dir, img_dir, output_dir, class_names):
     # Create the output directory if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -98,7 +98,8 @@ def convert_all_txt_to_json(txt_dir, img_dir, output_dir):
             # Convert the txt file to a json file
             txt_to_json(os.path.join(txt_dir, txt_filename), 
                         os.path.join(img_dir, img_filename),
-                        output_dir)
+                        output_dir,
+                        class_names)
     print('Done.')
 def get_class_names(yaml_file_path):
     with open(yaml_file_path, 'r') as file:
@@ -285,12 +286,14 @@ class MainApp(QApplication):
         os.chdir(self.working_dir)
 
         # Call the subprocess
-        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for line in iter(process.stdout.readline, b''):
-            self.results_console.appendPlainText(line.decode().strip())
-
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
+        while process.poll() is None:
+            line = process.stdout.readline().strip()
+            if line:
+                self.results_console.appendPlainText(line)
         process.stdout.close()
         process.wait()
+
 
         # Revert back to the original directory
         os.chdir(original_dir)
@@ -335,7 +338,9 @@ class MainApp(QApplication):
             f'imgsz={self.imgsz_spinner.currentText()}',
             f'device={self.device_spinner.currentText()}',
             'save_txt=True',
-            'save=False'
+            'save=False',
+            'project=proj',
+            'name=label_model'
         ]
 
         # Store the original directory
@@ -353,7 +358,7 @@ class MainApp(QApplication):
         process.wait()
 
         # After generating the labels, convert the txt files to json
-        txt_dir = os.path.join(self.working_dir, "runs", "segment", "predict", "labels")
+        txt_dir = os.path.join(self.working_dir, "proj", "label_model")
         img_dir = imgs_dir
         output_dir = os.path.join(self.working_dir, "jsonlabels")
 
