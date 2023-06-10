@@ -30,8 +30,9 @@ pip install -r requirements.txt
 ## Usage
 Run the main script:
 ```bash
-python trainlabelGUI.py
+python main.py
 ```
+![Semantix Screenshot](imgs/app.png)
 
 ## License
 
