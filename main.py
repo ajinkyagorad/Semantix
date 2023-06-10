@@ -10,7 +10,7 @@ import json
 class MainApp(QApplication):
     def __init__(self, sys_argv):
         super(MainApp, self).__init__(sys_argv)
-
+        
         # Main Layout
         self.layout = QVBoxLayout()
 
@@ -20,16 +20,41 @@ class MainApp(QApplication):
 
         parameters_layout.addWidget(QLabel(text='Epochs:'))
         self.epochs_input = QLineEdit()
+        self.epochs_input.setText("50")  # Set default value to 1000
         parameters_layout.addWidget(self.epochs_input)
         
-        parameters_layout.addWidget(QLabel(text='Learning Rate:'))
-        self.lr_input = QLineEdit()
-        parameters_layout.addWidget(self.lr_input)
+
 
         parameters_layout.addWidget(QLabel(text='Device:'))
         self.device_spinner = QComboBox()
         self.device_spinner.addItems(['cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'])
         parameters_layout.addWidget(self.device_spinner)
+        
+        # Dropdown for model selection
+        parameters_layout.addWidget(QLabel(text='Model:'))
+        self.model_spinner = QComboBox()
+        self.model_spinner.addItems(['yolov8m-seg.pt', 'yolov8l-seg.pt', 'yolov8x-seg.pt', 'yolov8p-seg.pt'])
+        parameters_layout.addWidget(self.model_spinner)
+
+        # Dropdown for task selection
+        parameters_layout.addWidget(QLabel(text='Task:'))
+        self.task_spinner = QComboBox()
+        self.task_spinner.addItems(['segment'])
+        parameters_layout.addWidget(self.task_spinner)
+
+        # Dropdown for image size selection
+        parameters_layout.addWidget(QLabel(text='Image Size:'))
+        self.imgsz_spinner = QComboBox()
+        self.imgsz_spinner.addItems(['640'])
+        parameters_layout.addWidget(self.imgsz_spinner)
+
+        # Dropdown for batch size selection
+        parameters_layout.addWidget(QLabel(text='Batch Size:'))
+        self.batch_spinner = QComboBox()
+        self.batch_spinner.addItems(['4', '8', '16', '32'])
+        parameters_layout.addWidget(self.batch_spinner)
+
+
         
    
 
@@ -95,7 +120,13 @@ class MainApp(QApplication):
 
         imglabels_dir = os.path.join(self.working_dir, 'imglabels')
         os.makedirs(imglabels_dir, exist_ok=True)
-
+        
+        
+        # Remove the directory if it exists, then recreate it
+        if os.path.exists(imglabels_dir):
+            shutil.rmtree(imglabels_dir)
+        os.makedirs(imglabels_dir)
+        
         json_file_paths = []
 
         for file_path in valid_files:
@@ -132,10 +163,44 @@ class MainApp(QApplication):
 
 
 
-
     def train_data(self):
-        # Implement logic here
         self.results_console.appendPlainText("Train Data clicked\n")
+
+        data_yaml = os.path.join(self.working_dir, 'imglabels', 'YOLODataset', 'dataset.yaml')
+        cmd_args = [
+            'yolo',
+            f'task={self.task_spinner.currentText()}',
+            'mode=train',
+            f'epochs={self.epochs_input.text()}',
+            f'data={data_yaml}',
+            f'model={self.model_spinner.currentText()}',
+            f'imgsz={self.imgsz_spinner.currentText()}',
+            f'batch={self.batch_spinner.currentText()}',
+            f'device={self.device_spinner.currentText()}'
+        ]
+
+        # Store the original directory
+        original_dir = os.getcwd()
+
+        # Change the working directory
+        os.chdir(self.working_dir)
+
+        # Call the subprocess
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE)
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                self.results_console.appendPlainText(output.strip().decode())
+        rc = process.poll()
+
+        # Revert back to the original directory
+        os.chdir(original_dir)
+
+        self.results_console.appendPlainText("Training completed\n")
+
+
 
     def generate_labels(self):
         # Implement logic here
