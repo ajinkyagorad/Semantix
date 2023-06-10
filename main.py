@@ -276,7 +276,9 @@ class MainApp(QApplication):
             f'model={self.model_spinner.currentText()}',
             f'imgsz={self.imgsz_spinner.currentText()}',
             f'batch={self.batch_spinner.currentText()}',
-            f'device={self.device_spinner.currentText()}'
+            f'device={self.device_spinner.currentText()}',
+            f'project=model_training',
+            f'name=0'
         ]
 
         # Store the original directory
@@ -286,15 +288,9 @@ class MainApp(QApplication):
         os.chdir(self.working_dir)
 
         # Call the subprocess
-        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
-        while process.poll() is None:
-            line = process.stdout.readline().strip()
-            if line:
-                self.results_console.appendPlainText(line)
-        process.stdout.close()
-        process.wait()
+        subprocess.check_call(cmd_args)
 
-
+        
         # Revert back to the original directory
         os.chdir(original_dir)
 
@@ -333,14 +329,14 @@ class MainApp(QApplication):
         cmd_args = [
             'yolo',
             'predict',
-            f'model={os.path.join(self.working_dir, "runs", "segment", "train", "weights", "best.pt")}',
+            f'model={os.path.join(self.working_dir, "model_training", "0", "weights", "best.pt")}',
             f'source={imgs_dir}',
             f'imgsz={self.imgsz_spinner.currentText()}',
             f'device={self.device_spinner.currentText()}',
             'save_txt=True',
             'save=False',
-            'project=proj',
-            'name=label_model'
+            'project=generated_labels',
+            'name=0'
         ]
 
         # Store the original directory
@@ -350,15 +346,12 @@ class MainApp(QApplication):
         os.chdir(self.working_dir)
 
         # Call the subprocess
-        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for line in iter(process.stdout.readline, b''):
-            self.results_console.appendPlainText(line.decode().strip())
-
-        process.stdout.close()
-        process.wait()
+        subprocess.check_call(cmd_args)
+        #process = subprocess.Popen(cmd_args)
+        #process.wait()
 
         # After generating the labels, convert the txt files to json
-        txt_dir = os.path.join(self.working_dir, "proj", "label_model")
+        txt_dir = os.path.join(self.working_dir, "generated_labels", "0", "labels")
         img_dir = imgs_dir
         output_dir = os.path.join(self.working_dir, "jsonlabels")
 
