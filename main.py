@@ -6,7 +6,106 @@ import glob
 import shutil
 import subprocess
 import json
+from PIL import Image
+from tqdm import tqdm
+import yaml
 
+
+def txt_to_json(txt_file, img_file, output_dir):
+    
+    # Open the txt file
+    with open(txt_file, 'r') as f:
+        lines = f.readlines()
+    
+    # Get the width and height of the image
+    with Image.open(img_file) as img:
+        width, height = img.size
+
+    # Initialize an empty list to store the label data
+    label_data = []
+
+    # Process each line in the file
+    for line in lines:
+        # Split the line into components
+        components = line.strip().split()
+
+        # Extract the class id and the polygon points
+        cls_id = int(components[0])
+        points = [float(x) for x in components[1:]]
+
+        # Group the points into (x, y) pairs
+        points = list(zip(points[::2], points[1::2]))
+        
+        # Scale the points
+        points = [(x * width, y * height) for x, y in points]
+        
+        # Create a dictionary for this label
+        label_dict = {
+            "label": class_names[cls_id],
+            "points": points,
+            "group_id": None,
+            "shape_type": "polygon",
+            "flags": {}
+        }
+
+        # Add the label dictionary to the list
+        label_data.append(label_dict)
+
+    # Create a dictionary for the entire image
+    img_dict = {
+        "version": "4.5.6",
+        "flags": {},
+        "shapes": label_data,
+        "lineColor": [0, 255, 0, 128],
+        "fillColor": [255, 0, 0, 128],
+        "imagePath": os.path.basename(img_file),
+        "imageData": None
+    }
+
+    # Determine the name of the json file
+    json_file = os.path.join(output_dir, os.path.basename(txt_file).replace('.txt', '.json'))
+
+    # Write the json file
+    with open(json_file, 'w') as f:
+        json.dump(img_dict, f, ensure_ascii=False, indent=2)
+
+
+def convert_all_txt_to_json(txt_dir, img_dir, output_dir):
+    # Create the output directory if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    elif os.path.exists(output_dir):
+        i = 1
+        while os.path.exists(f"{output_dir}_{i}"):
+            i += 1
+        output_dir = f"{output_dir}_{i}"
+        os.makedirs(output_dir)
+
+    for txt_filename in tqdm(os.listdir(txt_dir)):
+        if txt_filename.endswith('.txt'):
+            # Construct the corresponding image filename and output filename
+            base_filename = os.path.splitext(txt_filename)[0]
+            output_filename = base_filename + '.json'
+
+            if os.path.isfile(os.path.join(img_dir, base_filename + '.jpg')):
+                img_filename = base_filename + '.jpg'
+            elif os.path.isfile(os.path.join(img_dir, base_filename + '.png')):
+                img_filename = base_filename + '.png'
+            else:
+                print(f"No corresponding .jpg or .png file found for {txt_filename}. Skipping.")
+                continue
+
+            # Convert the txt file to a json file
+            txt_to_json(os.path.join(txt_dir, txt_filename), 
+                        os.path.join(img_dir, img_filename),
+                        output_dir)
+    print('Done.')
+def get_class_names(yaml_file_path):
+    with open(yaml_file_path, 'r') as file:
+        yaml_data = yaml.load(file, Loader=yaml.FullLoader)
+    return yaml_data.get('names', [])
+    
+    
 class MainApp(QApplication):
     def __init__(self, sys_argv):
         super(MainApp, self).__init__(sys_argv)
@@ -186,14 +285,12 @@ class MainApp(QApplication):
         os.chdir(self.working_dir)
 
         # Call the subprocess
-        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE)
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                self.results_console.appendPlainText(output.strip().decode())
-        rc = process.poll()
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        for line in iter(process.stdout.readline, b''):
+            self.results_console.appendPlainText(line.decode().strip())
+
+        process.stdout.close()
+        process.wait()
 
         # Revert back to the original directory
         os.chdir(original_dir)
@@ -203,8 +300,76 @@ class MainApp(QApplication):
 
 
     def generate_labels(self):
-        # Implement logic here
         self.results_console.appendPlainText("Generate Labels clicked\n")
+
+        # Select the image files
+        options = QFileDialog.Options()
+        file_dialog = QFileDialog()
+        filenames, _ = file_dialog.getOpenFileNames(self.window, filter="Images (*.jpg *.png)", options=options)
+
+        valid_files = [f for f in filenames]
+
+        self.results_console.appendPlainText(f"{len(valid_files)} files loaded for prediction\n")
+
+        # Prepare the directory for prediction
+        imgs_dir = os.path.join(self.working_dir, 'imgs')
+        os.makedirs(imgs_dir, exist_ok=True)
+
+        # Remove the directory if it exists, then recreate it
+        if os.path.exists(imgs_dir):
+            shutil.rmtree(imgs_dir)
+        os.makedirs(imgs_dir)
+
+        for file_path in valid_files:
+            # Copy the image file to the new directory
+            shutil.copy(file_path, imgs_dir)
+
+        self.results_console.appendPlainText("Copied files to: " + imgs_dir)
+
+        # Perform the prediction
+        cmd_args = [
+            'yolo',
+            'predict',
+            f'model={os.path.join(self.working_dir, "runs", "segment", "train", "weights", "best.pt")}',
+            f'source={imgs_dir}',
+            f'imgsz={self.imgsz_spinner.currentText()}',
+            f'device={self.device_spinner.currentText()}',
+            'save_txt=True',
+            'save=False'
+        ]
+
+        # Store the original directory
+        original_dir = os.getcwd()
+
+        # Change the working directory
+        os.chdir(self.working_dir)
+
+        # Call the subprocess
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        for line in iter(process.stdout.readline, b''):
+            self.results_console.appendPlainText(line.decode().strip())
+
+        process.stdout.close()
+        process.wait()
+
+        # After generating the labels, convert the txt files to json
+        txt_dir = os.path.join(self.working_dir, "runs", "segment", "predict", "labels")
+        img_dir = imgs_dir
+        output_dir = os.path.join(self.working_dir, "jsonlabels")
+
+        # Extract class names from dataset.yaml
+        class_names = get_class_names(os.path.join(self.working_dir, 'imglabels', 'YOLODataset', 'dataset.yaml'))
+
+        # Call convert_all_txt_to_json function
+        convert_all_txt_to_json(txt_dir, img_dir, output_dir, class_names)
+        self.results_console.appendPlainText("Converted TXT to JSON.\n")
+        os.chdir(original_dir)
+
+
+        self.results_console.appendPlainText("Label generation and conversion completed\n")
+
+
+
 
 
 if __name__ == '__main__':
