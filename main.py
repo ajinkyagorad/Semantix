@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt5.QtCore import Qt
 import sys
 import os
+os.environ["MKL_THREADING_LAYER"] = "GNU"
 import glob
 import shutil
 import subprocess
@@ -9,7 +10,9 @@ import json
 from PIL import Image
 from tqdm import tqdm
 import yaml
-
+import cv2
+import numpy as np
+from tqdm import tqdm
 
 def txt_to_json(txt_file, img_file, output_dir, class_names):
     
@@ -105,7 +108,43 @@ def get_class_names(yaml_file_path):
     with open(yaml_file_path, 'r') as file:
         yaml_data = yaml.load(file, Loader=yaml.FullLoader)
     return yaml_data.get('names', [])
+
+def getLabelledFraction(json_path):
+
+    # Load the JSON data
+    with open(json_path, 'r') as f:
+        json_data = json.load(f)
     
+    # Load the image
+    image_path = os.path.join(os.path.dirname(json_path), json_data['imagePath'])
+    image = cv2.imread(image_path)
+    
+    overlay = np.zeros_like(image)  # Create a black image with the same dimensions as the original image
+        
+
+    # Iterate over the labels in the JSON data
+    for shape in json_data['shapes']:
+        # Get the class name and points for this label
+        class_name = shape['label']
+        points = np.array(shape['points'], dtype=np.int32)
+
+        # Get the color for this class
+        color = [1,1,1]
+
+        # Create a polygon or rectangle and overlay it on the image
+        if shape['shape_type'] == 'polygon':
+            cv2.fillPoly(overlay, [points], color=color)
+        elif shape['shape_type'] == 'rectangle':
+            cv2.rectangle(overlay, tuple(points[0]), tuple(points[1]), color=color, thickness=-1)  # -1 thickness makes it filled
+
+    
+    # Count the number of zero-valued pixels
+    total_pixels = overlay.shape[0] * overlay.shape[1]
+    unlabelled_pixels = np.count_nonzero(np.all(overlay == 0, axis=2))
+    # Calculate the fraction of unlabelled pixels
+    fraction_labelled = 1-unlabelled_pixels / total_pixels
+    
+    return fraction_labelled
     
 class MainApp(QApplication):
     def __init__(self, sys_argv):
@@ -213,11 +252,32 @@ class MainApp(QApplication):
         options = QFileDialog.Options()
         file_dialog = QFileDialog()
         filenames, _ = file_dialog.getOpenFileNames(self.window, filter="Images (*.jpg *.png)", options=options)
+        
+        
+        # Create a list of image files that have a corresponding JSON file
+        valid_files_img = [f for f in filenames if os.path.isfile(f.rsplit('.', 1)[0] + '.json')]
+        self.results_console.appendPlainText(f"{len(valid_files_img)} files available, {len(filenames) - len(valid_files_img)} json files missing\n")
 
-        valid_files = [f for f in filenames if os.path.isfile(f.rsplit('.', 1)[0] + '.json')]
+        # Create a corresponding list of JSON files
+        valid_files_json = [f.rsplit('.', 1)[0] + '.json' for f in valid_files_img]
+        
+        # Filter the JSON files based on labelled area fraction
+        labelled_area_fraction = 0.8
 
-        self.results_console.appendPlainText(f"{len(valid_files)} files loaded, {len(filenames) - len(valid_files)} json files missing\n")
+        valid_indices = []
+        for i, f in tqdm(enumerate(valid_files_json), total=len(valid_files_json), desc="Processing files"):
+            if getLabelledFraction(f) > labelled_area_fraction:
+                valid_indices.append(i)
 
+        # Update valid_files_img and valid_files_json to contain only images/JSONs with a sufficient labeled area fraction
+        valid_files_img = [valid_files_img[i] for i in valid_indices]
+        valid_files_json = [valid_files_json[i] for i in valid_indices]
+        self.results_console.appendPlainText(f"Chosen {len(valid_files_img)}  files which have > {labelled_area_fraction} fraction of area labelled \n")
+
+
+
+        
+        
         imglabels_dir = os.path.join(self.working_dir, 'imglabels')
         os.makedirs(imglabels_dir, exist_ok=True)
         
@@ -229,7 +289,7 @@ class MainApp(QApplication):
         
         json_file_paths = []
 
-        for file_path in valid_files:
+        for file_path in valid_files_img:
             # Copy the image file to the new directory
             shutil.copy(file_path, imglabels_dir)
             # Add the path of the corresponding json file
@@ -336,7 +396,8 @@ class MainApp(QApplication):
             'save_txt=True',
             'save=False',
             'project=generated_labels',
-            'name=0'
+            'name=0',
+            'exist_ok=True'
         ]
 
         # Store the original directory
