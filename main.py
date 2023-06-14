@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QComboBox, QPlainTextEdit, QFileDialog, QScrollArea, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QPushButton, QPlainTextEdit, QSpinBox, QComboBox, QCheckBox, QListWidget, QLineEdit, QAbstractItemView, QWidget
 from PyQt5.QtCore import Qt
 import sys
 import os
@@ -165,9 +165,11 @@ class MainApp(QApplication):
 
 
         parameters_layout.addWidget(QLabel(text='Device:'))
-        self.device_spinner = QComboBox()
-        self.device_spinner.addItems(['cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'])
-        parameters_layout.addWidget(self.device_spinner)
+        self.device_list = QListWidget()
+        self.device_list.addItems(['cuda:0', 'cuda:1', 'cuda:2', 'cuda:3'])
+        self.device_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        parameters_layout.addWidget(self.device_list)
+
         
         # Dropdown for model selection
         parameters_layout.addWidget(QLabel(text='Model:'))
@@ -325,7 +327,12 @@ class MainApp(QApplication):
 
     def train_data(self):
         self.results_console.appendPlainText("Train Data clicked\n")
+        
+        selected_items = self.device_list.selectedItems()
+        selected_devices = [item.text().split(':')[1] for item in selected_items]
+        selected_devices_str = ','.join(selected_devices)
 
+        
         data_yaml = os.path.join(self.working_dir, 'imglabels', 'YOLODataset', 'dataset.yaml')
         cmd_args = [
             'yolo',
@@ -336,9 +343,10 @@ class MainApp(QApplication):
             f'model={self.model_spinner.currentText()}',
             f'imgsz={self.imgsz_spinner.currentText()}',
             f'batch={self.batch_spinner.currentText()}',
-            f'device={self.device_spinner.currentText()}',
+            f'device={selected_devices_str}',
             f'project=model_training',
-            f'name=0'
+            f'name=0',
+            'exist_ok=True'
         ]
 
         # Store the original directory
@@ -348,6 +356,7 @@ class MainApp(QApplication):
         os.chdir(self.working_dir)
 
         # Call the subprocess
+        self.results_console.appendPlainText("Running command: " + " ".join(cmd_args))
         subprocess.check_call(cmd_args)
 
         
@@ -384,7 +393,11 @@ class MainApp(QApplication):
             shutil.copy(file_path, imgs_dir)
 
         self.results_console.appendPlainText("Copied files to: " + imgs_dir)
-
+        
+        selected_items = self.device_list.selectedItems()
+        selected_devices = [item.text().split(':')[1] for item in selected_items]
+        selected_devices_str = ','.join(selected_devices)
+        
         # Perform the prediction
         cmd_args = [
             'yolo',
@@ -392,7 +405,7 @@ class MainApp(QApplication):
             f'model={os.path.join(self.working_dir, "model_training", "0", "weights", "best.pt")}',
             f'source={imgs_dir}',
             f'imgsz={self.imgsz_spinner.currentText()}',
-            f'device={self.device_spinner.currentText()}',
+            f'device={selected_devices_str}',
             'save_txt=True',
             'save=False',
             'project=generated_labels',
@@ -405,8 +418,10 @@ class MainApp(QApplication):
 
         # Change the working directory
         os.chdir(self.working_dir)
-
+        
+        
         # Call the subprocess
+        self.results_console.appendPlainText("Running command: " + " ".join(cmd_args))
         subprocess.check_call(cmd_args)
         #process = subprocess.Popen(cmd_args)
         #process.wait()
